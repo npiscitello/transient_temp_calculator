@@ -46,51 +46,29 @@
 // for testing return values
 int retval = RET_OK;
 
-// We need 2 arrays to store the value of each node at the current and previous time step.
-// We'll write the results out to a file as they're calculated so we don't clobber memory.
-// We'll also swap which one is current and previous each iteration so we don't have to copy
-// memory every time. This is probably premature optimization, but it's a concept I've wanted to
-// try out for a while now, so I'm just gonna go for it.
-float* arr_a;
-float* arr_b;
-
-int flags = 0;
-int storage_init_mask = 1 << 0;
-int temp_array_flip_mask = 1 << 1;
-
-// get the messy memory init out of the main application code; this lets us use a flag to tell the
-// rest of the system if the storage has been initialized or not
-int init_storage(const int length) {
-  arr_a = (float*)malloc(length * sizeof(float));
-  arr_b = (float*)malloc(length * sizeof(float));
-  if( arr_a == NULL || arr_b == NULL ) {
+int init_storage(float** a, float** b, const int length) {
+  *a = (float*)malloc(length * sizeof(float));
+  *b = (float*)malloc(length * sizeof(float));
+  if( *a == NULL || *b == NULL ) {
     ERR("could not allocate memory for nodal meshes - try again, or with a smaller value for npts");
-    flags &= !storage_init_mask;
     return RET_BADMALLOC;
   } else {
-    flags |= storage_init_mask;
     return RET_OK;
   }
 }
 
 // I want to make array swapping 'atomic', in the sense that I don't have to manually keep track of
-// which label refers to which data array, or what the state of the flag is. This function removes
-// complication - I can use a single line to flip the arrays and update the flag.
-int flip_arrays( float** label_a, float** label_b) {
-  if( flags & storage_init_mask ) {
-    if( flags & temp_array_flip_mask ) {
-      *label_a = arr_a;
-      *label_b = arr_b;
-    } else {
-      *label_a = arr_b;
-      *label_b = arr_a;
-    }
-    flags ^= temp_array_flip_mask;
-    return RET_OK;
-  } else {
-    ERR("temperature storage not initialized - this is a programming error");
-    return RET_NOTINIT;
-  }
+// which label refers to which data array. This (stateless!) function removes complication - I can
+// use a single line to flip the arrays.
+void flip_arrays( float** label_a, float** label_b) {
+  float* placeholder = *label_a;
+  *label_a = *label_b;
+  *label_b = placeholder;
+  return;
+}
+
+int write_to_file(const float* array, const int num_points, const int fd) {
+  return RET_OK;
 }
 
 int main(int argc, char* argv[]) {
@@ -111,13 +89,16 @@ int main(int argc, char* argv[]) {
     return RET_BADARGS;
   }
 
-  float* current_temps = NULL;
-  float* previous_temps = NULL;
-  retval = init_storage(npts * npts); TEST_RETVAL(retval);
-  current_temps = arr_a;
-  previous_temps = arr_b;
-  retval = flip_arrays(&current_temps, &previous_temps); TEST_RETVAL(retval);
-  printf("arrays managed\n");
+  // We need 2 arrays to store the value of each node at the current and previous time step.
+  // We'll write the results out to a file as they're calculated so we don't clobber memory.
+  // We'll also swap which one is current and previous each iteration so we don't have to copy
+  // memory every time. This is probably premature optimization, but it's a concept I've wanted to
+  // try out for a while now, so I'm just gonna go for it.
+  float* arr_a;
+  float* arr_b;
+  retval = init_storage(&arr_a, &arr_b, npts * npts); TEST_RETVAL(retval);
+  float* current_temps = arr_a;
+  float* previous_temps = arr_b;
 
   // Apply initial conditions - the project assignment seems to imply that the outermost nodes
   // suddenly change from the body's initial temperature to the edge initial temperatures at t=0.
@@ -130,7 +111,6 @@ int main(int argc, char* argv[]) {
       current_temps[x + (y * npts)] = INIT_TEMP_BODY;
     }
   }
-  printf("current temps init\n");
   for( int i = 0; i < npts; i++ ) {
     // top
     current_temps[i] = INIT_TEMP_A + (i * ((float)(INIT_TEMP_B - INIT_TEMP_A) / (float)(npts - 1)));
@@ -142,13 +122,34 @@ int main(int argc, char* argv[]) {
     current_temps[((i + 1) * npts) - 1] = INIT_TEMP_B + (i * ((float)(INIT_TEMP_C - INIT_TEMP_B) / (float)(npts - 1)));
   }
 
-/*
-  for( int i = 0; i < nt; i++ ) {
-    // write current temps (annotated w/ frame number) to file
-    // swap arrays
-
+//  /* array flip debug
+  for( int y = 0; y < npts; y++ ) {
+    for( int x = 0; x < npts; x++ ) {
+      printf("%.1f ", current_temps[x + (y * npts)]);
+    }
+    printf("\n");
   }
-*/
+  flip_arrays(&current_temps, &previous_temps);
+  for( int y = 0; y < npts; y++ ) {
+    for( int x = 0; x < npts; x++ ) {
+      printf("%.1f ", current_temps[x + (y * npts)]);
+    }
+    printf("\n");
+  }
+  flip_arrays(&previous_temps, &current_temps);
+  for( int y = 0; y < npts; y++ ) {
+    for( int x = 0; x < npts; x++ ) {
+      printf("%.1f ", current_temps[x + (y * npts)]);
+    }
+    printf("\n");
+  }
+//  */
+
+  for( int i = 0; i < nt; i++ ) {
+    write_to_file(current_temps, npts, 0);
+    flip_arrays(&current_temps, &previous_temps);
+    // calculate
+  }
 
   free(arr_a);
   free(arr_b);
