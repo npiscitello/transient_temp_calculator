@@ -8,7 +8,7 @@ import matplotlib.pyplot as plot
 
 parser = argparse.ArgumentParser()
 parser.add_argument("outfile", help="filename of the generated animation")
-parser.add_argument("-r", "--framerate", type=int, help="frames per second of the generated animation", default=30)
+parser.add_argument("-r", "--framerate", type=int, help="frames per second of the generated animation", default=100)
 parser.add_argument("-p", "--npts", type=int, help="number of nodes in x and y", default=40)
 parser.add_argument("-n", "--nt", type=int, help="number of time steps to take", default=1000)
 parser.add_argument("-d", "--dt", type=float, help="size of the time steps, in seconds", default=0.1)
@@ -36,5 +36,7 @@ for frame_raw in frames:
             row.append(float(val))
         frame.append(row)
     frame_np = np.array(frame)
-    plot.imsave("heatmap_frames/" + args.outfile + "_" + frame_num, frame_np, cmap='hot');
+    plot.imsave("heatmap_frames/" + args.outfile + "_" + str(frame_num), frame_np, cmap='hot');
     frame_num = frame_num + 1
+
+#ffmpeg -framerate 100 -i heatmap_frames/test_%d.png -c:v libx264 -profile:v high -crf 20 -pix_fmt yuv420p test.mp4
