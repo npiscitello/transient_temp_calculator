@@ -65,11 +65,13 @@ void flip_arrays( float** label_a, float** label_b) {
   return;
 }
 
-// format: [frame_num]:[node 0,0],[node 1,0],...;[node 0,1],[node 1,1],...;...,[node (num_points - 1),(num_points - 1)];\n
+// format: [node 0,0],[node 1,0],...;[node 0,1],[node 1,1],...;...,[node (num_points - 1),(num_points - 1)];\n
+// add frame num back in if we need it; as of now, its just getting in the way
 // data density is very low here, but storage is cheap and readability is more important - I'll
 // probably use Python to visualize the data
 int write_data(const int frame_num, const float* array, const int num_points) {
-  printf("%d:", frame_num);
+  (void)frame_num;
+  //printf("%d:", frame_num);
   for( int y = 0; y < num_points; y++ ) {
     printf("%.2f", array[y * num_points]);
     for( int x = 1; x < num_points; x++ ) {
