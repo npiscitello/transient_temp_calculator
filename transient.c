@@ -25,20 +25,17 @@
 #define RET_BADARGS   2
 #define RET_BADMALLOC 3
 #define RET_NOTINIT   4
-#define RET_BADFILE   5
 
-#define NUMARGS       5
-#define OUTF_ARG      1
-#define NPTS_ARG      2
-#define NT_ARG        3
-#define DT_ARG        4
-#define ALPHA_ARG     5
+#define NUMARGS       4
+#define NPTS_ARG      1
+#define NT_ARG        2
+#define DT_ARG        3
+#define ALPHA_ARG     4
 
 #define ERR(err_string)     printf("\e[31mError:\e[0m %s\n", (err_string))
 #define WARN(warn_string)   printf("\e[33mWarning:\e[0m %s\n", (warn_string))
 
-#define USAGE printf("\n\e[32mUsage:\e[0m %s [outf] [npts] [nt] [dt] [alpha]\n%s\n%s\n%s\n%s\n%s\n\n", argv[0],  \
-              "  - outf (file): file to write calculation data to; will be overwritten if existing",  \
+#define USAGE printf("\n\e[32mUsage:\e[0m %s [npts] [nt] [dt] [alpha]\n%s\n%s\n%s\n%s\n\n", argv[0],  \
               "  - npts (int): number of grid points in x and y (decimals will be truncated)",        \
               "  - nt (int): number of time steps (decimals will be truncated)",                      \
               "  - dt (float): size of the time steps, in seconds",                                   \
@@ -71,16 +68,16 @@ void flip_arrays( float** label_a, float** label_b) {
 // format: [frame_num]:[node 0,0],[node 1,0],...;[node 0,1],[node 1,1],...;...,[node (num_points - 1),(num_points - 1)];\n
 // data density is very low here, but storage is cheap and readability is more important - I'll
 // probably use Python to visualize the data
-int write_to_file(const int frame_num, const float* array, const int num_points, FILE* fd) {
-  fprintf(fd, "%d:", frame_num);
+int write_data(const int frame_num, const float* array, const int num_points) {
+  printf("%d:", frame_num);
   for( int y = 0; y < num_points; y++ ) {
-    fprintf(fd, "%.2f", array[y * num_points]);
+    printf("%.2f", array[y * num_points]);
     for( int x = 1; x < num_points; x++ ) {
-      fprintf(fd, ",%.2f", array[x + (y * num_points)]);
+      printf(",%.2f", array[x + (y * num_points)]);
     }
-    fprintf(fd, ";");
+    printf(";");
   }
-  fprintf(fd, "\n");
+  printf("\n");
   return RET_OK;
 }
 
@@ -89,12 +86,6 @@ int main(int argc, char* argv[]) {
     ERR("wrong number of args");
     USAGE;
     return RET_NEARGS;
-  }
-
-  FILE* outf = fopen(argv[OUTF_ARG], "w");
-  if( outf == NULL ) {
-    ERR("output file was not able to be opened for writing");
-    return RET_BADFILE;
   }
 
   const int npts = atoi(argv[NPTS_ARG]);
@@ -107,6 +98,9 @@ int main(int argc, char* argv[]) {
     USAGE;
     return RET_BADARGS;
   }
+
+  const float dx = (float)LENGTH / npts;
+  const float fourier = (float)(alpha * dt) / (float)(dx * dx);
 
   // We need 2 arrays to store the value of each node at the current and previous time step.
   // We'll write the results out to a file as they're calculated so we don't clobber memory.
@@ -141,39 +135,59 @@ int main(int argc, char* argv[]) {
     current_temps[((i + 1) * npts) - 1] = INIT_TEMP_B + (i * ((float)(INIT_TEMP_C - INIT_TEMP_B) / (float)(npts - 1)));
   }
 
-  /* array flip debug
-  for( int y = 0; y < npts; y++ ) {
-    for( int x = 0; x < npts; x++ ) {
-      printf("%.1f ", current_temps[x + (y * npts)]);
-    }
-    printf("\n");
-  }
-  flip_arrays(&current_temps, &previous_temps);
-  for( int y = 0; y < npts; y++ ) {
-    for( int x = 0; x < npts; x++ ) {
-      printf("%.1f ", current_temps[x + (y * npts)]);
-    }
-    printf("\n");
-  }
-  flip_arrays(&previous_temps, &current_temps);
-  for( int y = 0; y < npts; y++ ) {
-    for( int x = 0; x < npts; x++ ) {
-      printf("%.1f ", current_temps[x + (y * npts)]);
-    }
-    printf("\n");
-  }
-  */
-
-  /*
+  // calculate - we're assuming an adiabatic exterior
+  // save space in equations by pre-calculating the point coordinate
+  int P;
   for( int i = 0; i < nt; i++ ) {
-    write_to_file(i, current_temps, npts, outf);
+    write_data(i, current_temps, npts);
     flip_arrays(&current_temps, &previous_temps);
-    // calculate
+
+    // deal with interior nodes
+    for( int y = 1; y < (npts - 1); y++ ) {
+      for( int x = 1; x < (npts - 1); x++) {
+        P = x + (y * npts);
+        current_temps[P] = previous_temps[P] * (1 - (4 * fourier));
+        current_temps[P] += fourier * (previous_temps[P + 1] + \
+            previous_temps[P - 1] + previous_temps[P + npts] + previous_temps[P - npts]);
+      }
+    }
+
+    // deal with edges
+    for( int i = 1; i < (npts - 1); i++ ) {
+      P = i;
+      current_temps[P] = previous_temps[P] * (1 - (4 * fourier));
+      current_temps[P] += fourier * ((2 * previous_temps[P + npts]) + \
+          previous_temps[P - 1] + previous_temps[P + 1]);
+      P = ((i + 1) * npts) - 1;
+      current_temps[P] = previous_temps[P] * (1 - (4 * fourier));
+      current_temps[P] += fourier * ((2 * previous_temps[P - 1]) +    \
+          previous_temps[P - npts] + previous_temps[P + npts]);
+      P = (npts * (npts - 1)) + i;
+      current_temps[P] = previous_temps[P] * (1 - (4 * fourier));
+      current_temps[P] += fourier * ((2 * previous_temps[P - npts]) + \
+          previous_temps[P - 1] + previous_temps[P + 1]);
+      P = i * npts;
+      current_temps[P] = previous_temps[P] * (1 - (4 * fourier));
+      current_temps[P] += fourier * ((2 * previous_temps[P + 1]) +    \
+          previous_temps[P - npts] + previous_temps[P + npts]);
+    }
+
+    // deal with corners
+    P = 0;
+    current_temps[P] = previous_temps[P] * (1 - (4 * fourier));
+    current_temps[P] += 2 * fourier * (previous_temps[P + 1] + previous_temps[P + npts]);
+    P = npts - 1;
+    current_temps[P] = previous_temps[P] * (1 - (4 * fourier));
+    current_temps[P] += 2 * fourier * (previous_temps[P - 1] + previous_temps[P + npts]);
+    P = (npts * npts) - 1;
+    current_temps[P] = previous_temps[P] * (1 - (4 * fourier));
+    current_temps[P] += 2 * fourier * (previous_temps[P - 1] + previous_temps[P - npts]);
+    P = npts * (npts - 1);
+    current_temps[P] = previous_temps[P] * (1 - (4 * fourier));
+    current_temps[P] += 2 * fourier * (previous_temps[P + 1] + previous_temps[P - npts]);
   }
-  */
 
   free(arr_a);
   free(arr_b);
-  fclose(outf);
   return RET_OK;
 }
