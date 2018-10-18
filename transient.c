@@ -25,26 +25,27 @@
 #define RET_BADARGS   2
 #define RET_BADMALLOC 3
 #define RET_NOTINIT   4
+#define RET_BADFILE   5
 
-#define NUMARGS       4
-#define NPTS_ARG      1
-#define NT_ARG        2
-#define DT_ARG        3
-#define ALPHA_ARG     4
+#define NUMARGS       5
+#define OUTF_ARG      1
+#define NPTS_ARG      2
+#define NT_ARG        3
+#define DT_ARG        4
+#define ALPHA_ARG     5
 
 #define ERR(err_string)     printf("\e[31mError:\e[0m %s\n", (err_string))
 #define WARN(warn_string)   printf("\e[33mWarning:\e[0m %s\n", (warn_string))
 
-#define USAGE printf("\n\e[32mUsage:\e[0m %s [npts] [nt] [dt] [alpha]\n%s\n%s\n%s\n%s\n\n", argv[0],  \
+#define USAGE printf("\n\e[32mUsage:\e[0m %s [outf] [npts] [nt] [dt] [alpha]\n%s\n%s\n%s\n%s\n%s\n\n", argv[0],  \
+              "  - outf (file): file to write calculation data to; will be overwritten if existing",  \
               "  - npts (int): number of grid points in x and y (decimals will be truncated)",        \
               "  - nt (int): number of time steps (decimals will be truncated)",                      \
               "  - dt (float): size of the time steps, in seconds",                                   \
               "  - alpha (float): thermal diffusivity, in m^2/s")
 
-#define TEST_RETVAL(value) if((value) != RET_OK){return (value);}
-
-// for testing return values
 int retval = RET_OK;
+#define TEST_RETVAL(value) if((value) != RET_OK){return (value);}
 
 int init_storage(float** a, float** b, const int length) {
   *a = (float*)malloc(length * sizeof(float));
@@ -67,7 +68,19 @@ void flip_arrays( float** label_a, float** label_b) {
   return;
 }
 
-int write_to_file(const float* array, const int num_points, const int fd) {
+// format: [frame_num]:[node 0,0],[node 1,0],...;[node 0,1],[node 1,1],...;...,[node (num_points - 1),(num_points - 1)];\n
+// data density is very low here, but storage is cheap and readability is more important - I'll
+// probably use Python to visualize the data
+int write_to_file(const int frame_num, const float* array, const int num_points, FILE* fd) {
+  fprintf(fd, "%d:", frame_num);
+  for( int y = 0; y < num_points; y++ ) {
+    fprintf(fd, "%.2f", array[y * num_points]);
+    for( int x = 1; x < num_points; x++ ) {
+      fprintf(fd, ",%.2f", array[x + (y * num_points)]);
+    }
+    fprintf(fd, ";");
+  }
+  fprintf(fd, "\n");
   return RET_OK;
 }
 
@@ -76,6 +89,12 @@ int main(int argc, char* argv[]) {
     ERR("wrong number of args");
     USAGE;
     return RET_NEARGS;
+  }
+
+  FILE* outf = fopen(argv[OUTF_ARG], "w");
+  if( outf == NULL ) {
+    ERR("output file was not able to be opened for writing");
+    return RET_BADFILE;
   }
 
   const int npts = atoi(argv[NPTS_ARG]);
@@ -122,7 +141,7 @@ int main(int argc, char* argv[]) {
     current_temps[((i + 1) * npts) - 1] = INIT_TEMP_B + (i * ((float)(INIT_TEMP_C - INIT_TEMP_B) / (float)(npts - 1)));
   }
 
-//  /* array flip debug
+  /* array flip debug
   for( int y = 0; y < npts; y++ ) {
     for( int x = 0; x < npts; x++ ) {
       printf("%.1f ", current_temps[x + (y * npts)]);
@@ -143,15 +162,18 @@ int main(int argc, char* argv[]) {
     }
     printf("\n");
   }
-//  */
+  */
 
+  /*
   for( int i = 0; i < nt; i++ ) {
-    write_to_file(current_temps, npts, 0);
+    write_to_file(i, current_temps, npts, outf);
     flip_arrays(&current_temps, &previous_temps);
     // calculate
   }
+  */
 
   free(arr_a);
   free(arr_b);
+  fclose(outf);
   return RET_OK;
 }
