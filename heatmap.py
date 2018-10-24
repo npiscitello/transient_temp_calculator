@@ -43,7 +43,8 @@ for frame_raw in frames:
     frame_num = frame_num + 1
 
 print("Starting animation conversion...");
-cmd = "ffmpeg -y -i heatmap_frames/%d.png -c:v libx264 -profile:v high -crf 20 -pix_fmt yuv420p -vf scale=-1:480 -framerate " + str(args.framerate) + " " + args.outfile
+cmd = "ffmpeg -y -framerate " + str(args.framerate) + " -i heatmap_frames/%d.png -c:v libx264 -profile:v high -crf 20 -pix_fmt yuv420p -vf scale=-1:480 " + args.outfile
 conversion = subprocess.run(cmd.split(' '), capture_output=True, text=True)
+print(conversion.args)
 frame_del = subprocess.run(["rm", "-rf", "heatmap_frames"], capture_output=True, text=True)
 print("...done! " + args.outfile + " generated")

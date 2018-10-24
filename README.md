@@ -6,7 +6,7 @@
    * you can run the calculator on its own, but you're just going to see a mess of numbers on stdout
 
 # Usage
-1. `./heatmap.py [output_file.mp4]`
+1. `python heatmap.py [output_file.mp4]`
    * this wrapper invokes the calculator and generates an animation
    * make sure you have python3, ffmpeg, numpy, and matplotlib installed
       * use your distro's package installer for the first 2 (e.g. `sudo pacman -S python3 ffmpeg`)
