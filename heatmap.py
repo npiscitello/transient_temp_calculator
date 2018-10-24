@@ -2,7 +2,6 @@
 
 import argparse
 import subprocess
-import os
 import numpy as np
 import matplotlib.pyplot as plot
 
@@ -16,16 +15,18 @@ parser.add_argument("-a", "--alpha", type=float, help="thermal diffusivity, in m
 parser.add_argument("-e", "--exec", help="executable name of the C calculator", default="transient")
 args = parser.parse_args()
 
-os.makedirs("heatmap_frames")
+subprocess.run(["mkdir", "-p", "heatmap_frames"], capture_output=True, text=True);
 
 # yeah, this way we have to keep it all in memory, but if it becomes a problem I'll figure something
 # else out
+print("Calculating transient temperature distribution...")
 calculations = subprocess.run(["./" + args.exec, str(args.npts), str(args.nt), str(args.dt),
     str(args.alpha)], capture_output=True, text=True)
 
 frames = list(filter(None, calculations.stdout.split('\n')))
 # format: [node 0,0],[node 1,0],...;[node 0,1],[node 1,1],...;...,[node (num_points - 1),(num_points - 1)];\n
 frame_num = 0
+print("Generating animation frames...")
 for frame_raw in frames:
     rows = list(filter(None, frame_raw.split(';')))
     frame = []
@@ -36,7 +37,13 @@ for frame_raw in frames:
             row.append(float(val))
         frame.append(row)
     frame_np = np.array(frame)
-    plot.imsave("heatmap_frames/" + args.outfile + "_" + str(frame_num), frame_np, cmap='hot');
+    plot.imsave("heatmap_frames/" + str(frame_num), frame_np, cmap='hot');
+    if frame_num % 100 == 0:
+        print("\t" + str(frame_num) + " frames generated...")
     frame_num = frame_num + 1
 
-#ffmpeg -framerate 100 -i heatmap_frames/test_%d.png -c:v libx264 -profile:v high -crf 20 -pix_fmt yuv420p test.mp4
+print("Starting animation conversion...");
+cmd = "ffmpeg -y -i heatmap_frames/%d.png -c:v libx264 -profile:v high -crf 20 -pix_fmt yuv420p -vf scale=-1:480 -framerate " + str(args.framerate) + " " + args.outfile
+conversion = subprocess.run(cmd.split(' '), capture_output=True, text=True)
+frame_del = subprocess.run(["rm", "-rf", "heatmap_frames"], capture_output=True, text=True)
+print("...done! " + args.outfile + " generated")

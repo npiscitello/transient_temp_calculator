@@ -2,7 +2,7 @@ EXECNAME 	:= 	transient
 
 CC				:=	gcc
 CFLAGS 		:=	
-LD_FLAGS 	:=	-lm
+LD_FLAGS 	:=	
 INCLUDES 	:= 	
 
 src 			:= 	$(wildcard *.c)
