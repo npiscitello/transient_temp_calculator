@@ -74,16 +74,16 @@ void flip_arrays( float** label_a, float** label_b) {
 // data density is very low here, but storage is cheap and readability is more important - I'll
 // probably use Python to visualize the data
 int write_data(const int frame_num, const float* array, const int num_points) {
-  printf("%d:", frame_num);
-  //(void) frame_num;
+  //printf("%d:", frame_num);
+  (void) frame_num;
   for( int y = 0; y < num_points; y++ ) {
-    //printf("%.2f", array[y * num_points]);
+    printf("%.2f", array[y * num_points]);
     for( int x = 1; x < num_points; x++ ) {
-      //printf(",%.2f", array[x + (y * num_points)]);
+      printf(",%.2f", array[x + (y * num_points)]);
     }
-    //printf(";");
+    printf(";");
   }
-  //printf("\n");
+  printf("\n");
   return RET_OK;
 }
 
@@ -179,7 +179,6 @@ int main(int argc, char* argv[]) {
     flip_arrays(&current_temps, &previous_temps);
 
     // kick off interior node calc threads
-    printf(" threads: ");
     calc_data.current_temps = current_temps;
     calc_data.previous_temps = previous_temps;
     calc_data.npts = npts;
@@ -194,7 +193,6 @@ int main(int argc, char* argv[]) {
     pthread_create(&(thread_pool[NUM_THREADS - 1]), NULL, calc_interior, (void*)(&calc_data));
 
     // deal with edges
-    printf("edges: ");
     for( int j = 1; j < (npts - 1); j++ ) {
       P = j;
       current_temps[P] = previous_temps[P] * (1 - (4 * fourier));
@@ -215,7 +213,6 @@ int main(int argc, char* argv[]) {
     }
 
     // deal with corners
-    printf("corners: ");
     P = 0;
     current_temps[P] = previous_temps[P] * (1 - (4 * fourier));
     current_temps[P] += 2 * fourier * (previous_temps[P + 1] + previous_temps[P + npts]);
@@ -230,12 +227,10 @@ int main(int argc, char* argv[]) {
     current_temps[P] += 2 * fourier * (previous_temps[P + 1] + previous_temps[P - npts]);
 
     // wait for interior node calcs
-    printf("joins: ");
     for( int j = 0; j < NUM_THREADS; j++ ) {
       pthread_join(thread_pool[j], NULL);
     }
 
-    printf("done\n");
   }
 
   free(arr_a);
