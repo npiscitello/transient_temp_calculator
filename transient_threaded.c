@@ -172,6 +172,8 @@ int main(int argc, char* argv[]) {
   int P;
   // prepare struct to pass data to worker threads
   calc_data_t calc_data;
+  // worker thread
+  pthread_t thread;
   for( int i = 0; i < nt; i++ ) {
     write_data(i, current_temps, npts);
     flip_arrays(&current_temps, &previous_temps);
@@ -183,7 +185,8 @@ int main(int argc, char* argv[]) {
     calc_data.fourier = fourier;
     calc_data.row_start = 1;
     calc_data.row_end = npts - 1;
-    calc_interior((void*)(&calc_data));
+    //calc_interior((void*)(&calc_data));
+    pthread_create(&thread, NULL, calc_interior, (void*)(&calc_data));
 
     // deal with edges
     for( int i = 1; i < (npts - 1); i++ ) {
@@ -219,6 +222,7 @@ int main(int argc, char* argv[]) {
     current_temps[P] = previous_temps[P] * (1 - (4 * fourier));
     current_temps[P] += 2 * fourier * (previous_temps[P + 1] + previous_temps[P - npts]);
 
+    pthread_join(thread, NULL);
     /*
     // wait for interior node calcs
     for( int j = 0; j < NUM_THREADS; j++ ) {
