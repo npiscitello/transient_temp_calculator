@@ -188,6 +188,8 @@ int main(int argc, char* argv[]) {
     current_temps[P] = previous_temps[P] * (1 - (4 * fourier));
     current_temps[P] += 2 * fourier * (previous_temps[P + 1] + previous_temps[P - npts]);
   }
+  // put out our last round of calculations
+  write_data(nt, current_temps, npts);
 
   free(arr_a);
   free(arr_b);
