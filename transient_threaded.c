@@ -74,16 +74,16 @@ void flip_arrays( float** label_a, float** label_b) {
 // data density is very low here, but storage is cheap and readability is more important - I'll
 // probably use Python to visualize the data
 int write_data(const int frame_num, const float* array, const int num_points) {
-  (void)frame_num;
-  //printf("%d:", frame_num);
+  printf("%d:", frame_num);
+  //(void) frame_num;
   for( int y = 0; y < num_points; y++ ) {
-    printf("%.2f", array[y * num_points]);
+    //printf("%.2f", array[y * num_points]);
     for( int x = 1; x < num_points; x++ ) {
-      printf(",%.2f", array[x + (y * num_points)]);
+      //printf(",%.2f", array[x + (y * num_points)]);
     }
-    printf(";");
+    //printf(";");
   }
-  printf("\n");
+  //printf("\n");
   return RET_OK;
 }
 
@@ -99,15 +99,15 @@ struct calc_data_struct {
 typedef struct calc_data_struct calc_data_t;
 
 void* calc_interior( void* calc_data ) {
-  calc_data_t* data = (calc_data_t *)calc_data;
+  calc_data_t data = *((calc_data_t *)calc_data);
   int P;
-  for( int y = data->row_start; y < data->row_end; y++ ) {
-    for( int x = 1; x < (data->npts - 1); x++) {
-      P = x + (y * data->npts);
-      (data->current_temps)[P] = (data->previous_temps)[P] * (1 - (4 * data->fourier));
-      (data->current_temps)[P] += data->fourier * ((data->previous_temps)[P + 1] + \
-          (data->previous_temps)[P - 1] + (data->previous_temps)[P + data->npts] + \
-          (data->previous_temps)[P - data->npts]);
+  for( int y = data.row_start; y < data.row_end; y++ ) {
+    for( int x = 1; x < (data.npts - 1); x++) {
+      P = x + (y * data.npts);
+      (data.current_temps)[P] = (data.previous_temps)[P] * (1 - (4 * data.fourier));
+      (data.current_temps)[P] += data.fourier * ((data.previous_temps)[P + 1] + \
+          (data.previous_temps)[P - 1] + (data.previous_temps)[P + data.npts] + \
+          (data.previous_temps)[P - data.npts]);
     }
   }
   return (NULL);
@@ -172,43 +172,50 @@ int main(int argc, char* argv[]) {
   int P;
   // prepare struct to pass data to worker threads
   calc_data_t calc_data;
-  // worker thread
-  pthread_t thread;
+  // worker thread pool
+  pthread_t thread_pool[NUM_THREADS];
   for( int i = 0; i < nt; i++ ) {
     write_data(i, current_temps, npts);
     flip_arrays(&current_temps, &previous_temps);
 
     // kick off interior node calc threads
+    printf(" threads: ");
     calc_data.current_temps = current_temps;
     calc_data.previous_temps = previous_temps;
     calc_data.npts = npts;
     calc_data.fourier = fourier;
-    calc_data.row_start = 1;
+    for( int j = 0; j < (NUM_THREADS - 1); j++ ) {
+      calc_data.row_start = (j * (npts / NUM_THREADS)) + 1;
+      calc_data.row_end   = (j + 1) * (npts / NUM_THREADS);
+      pthread_create(&(thread_pool[j]), NULL, calc_interior, (void*)(&calc_data));
+    }
+    calc_data.row_start = ((NUM_THREADS - 1) * (npts / NUM_THREADS)) + 1;
     calc_data.row_end = npts - 1;
-    //calc_interior((void*)(&calc_data));
-    pthread_create(&thread, NULL, calc_interior, (void*)(&calc_data));
+    pthread_create(&(thread_pool[NUM_THREADS - 1]), NULL, calc_interior, (void*)(&calc_data));
 
     // deal with edges
-    for( int i = 1; i < (npts - 1); i++ ) {
-      P = i;
+    printf("edges: ");
+    for( int j = 1; j < (npts - 1); j++ ) {
+      P = j;
       current_temps[P] = previous_temps[P] * (1 - (4 * fourier));
       current_temps[P] += fourier * ((2 * previous_temps[P + npts]) + \
           previous_temps[P - 1] + previous_temps[P + 1]);
-      P = ((i + 1) * npts) - 1;
+      P = ((j + 1) * npts) - 1;
       current_temps[P] = previous_temps[P] * (1 - (4 * fourier));
       current_temps[P] += fourier * ((2 * previous_temps[P - 1]) +    \
           previous_temps[P - npts] + previous_temps[P + npts]);
-      P = (npts * (npts - 1)) + i;
+      P = (npts * (npts - 1)) + j;
       current_temps[P] = previous_temps[P] * (1 - (4 * fourier));
       current_temps[P] += fourier * ((2 * previous_temps[P - npts]) + \
           previous_temps[P - 1] + previous_temps[P + 1]);
-      P = i * npts;
+      P = j * npts;
       current_temps[P] = previous_temps[P] * (1 - (4 * fourier));
       current_temps[P] += fourier * ((2 * previous_temps[P + 1]) +    \
           previous_temps[P - npts] + previous_temps[P + npts]);
     }
 
     // deal with corners
+    printf("corners: ");
     P = 0;
     current_temps[P] = previous_temps[P] * (1 - (4 * fourier));
     current_temps[P] += 2 * fourier * (previous_temps[P + 1] + previous_temps[P + npts]);
@@ -222,13 +229,13 @@ int main(int argc, char* argv[]) {
     current_temps[P] = previous_temps[P] * (1 - (4 * fourier));
     current_temps[P] += 2 * fourier * (previous_temps[P + 1] + previous_temps[P - npts]);
 
-    pthread_join(thread, NULL);
-    /*
     // wait for interior node calcs
+    printf("joins: ");
     for( int j = 0; j < NUM_THREADS; j++ ) {
-      pthread_join(thread_pool[i], NULL);
+      pthread_join(thread_pool[j], NULL);
     }
-    */
+
+    printf("done\n");
   }
 
   free(arr_a);
