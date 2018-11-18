@@ -1,4 +1,5 @@
 transient
+transient_threaded
 *.o
 heatmap_frames
 *.mp4

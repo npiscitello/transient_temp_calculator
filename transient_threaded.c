@@ -19,6 +19,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <pthread.h>
 
 #define RET_OK        0
 #define RET_NEARGS    1
@@ -31,6 +32,9 @@
 #define NT_ARG        2
 #define DT_ARG        3
 #define ALPHA_ARG     4
+
+// number of worker threads calculating interior nodes
+#define NUM_THREADS   7
 
 #define ERR(err_string)     printf("\e[31mError:\e[0m %s\n", (err_string))
 #define WARN(warn_string)   printf("\e[33mWarning:\e[0m %s\n", (warn_string))
@@ -81,6 +85,33 @@ int write_data(const int frame_num, const float* array, const int num_points) {
   }
   printf("\n");
   return RET_OK;
+}
+
+// for spinning interior node calculations into other threads
+struct calc_data_struct {
+  int row_start;
+  int row_end;
+  float* current_temps;
+  float* previous_temps;
+  int npts;
+  float fourier;
+  pthread_mutex_t mutex;
+};
+typedef struct calc_data_struct calc_data_t;
+
+void* calc_interior( void* calc_data ) {
+  calc_data_t* data = (calc_data_t *)calc_data;
+  int P;
+  for( int y = data->row_start; y < data->row_end; y++ ) {
+    for( int x = 1; x < (data->npts - 1); x++) {
+      P = x + (y * data->npts);
+      (data->current_temps)[P] = (data->previous_temps)[P] * (1 - (4 * data->fourier));
+      (data->current_temps)[P] += data->fourier * ((data->previous_temps)[P + 1] + \
+          (data->previous_temps)[P - 1] + (data->previous_temps)[P + data->npts] + \
+          (data->previous_temps)[P - data->npts]);
+    }
+  }
+  return (NULL);
 }
 
 int main(int argc, char* argv[]) {
@@ -140,19 +171,35 @@ int main(int argc, char* argv[]) {
   // calculate - we're assuming an adiabatic exterior
   // save space in equations by pre-calculating the point coordinate
   int P;
+  // prepare worker thread handles
+  pthread_t thread_pool[NUM_THREADS];
+  // prepare struct to pass data to worker threads
+  calc_data_t calc_data;
+  // make sure main thread waits for worker threads to copy data before moving on
+  pthread_mutex_init(&(calc_data.mutex), NULL);
   for( int i = 0; i < nt; i++ ) {
     write_data(i, current_temps, npts);
     flip_arrays(&current_temps, &previous_temps);
 
-    // deal with interior nodes
-    for( int y = 1; y < (npts - 1); y++ ) {
-      for( int x = 1; x < (npts - 1); x++) {
-        P = x + (y * npts);
-        current_temps[P] = previous_temps[P] * (1 - (4 * fourier));
-        current_temps[P] += fourier * (previous_temps[P + 1] + \
-            previous_temps[P - 1] + previous_temps[P + npts] + previous_temps[P - npts]);
-      }
+    // kick off interior node calc threads
+    calc_data.current_temps = current_temps;
+    calc_data.previous_temps = previous_temps;
+    calc_data.npts = npts;
+    calc_data.fourier = fourier;
+    for( int i = 0; i < (NUM_THREADS - 1); i++ ) {
+      pthread_mutex_lock(&(calc_data.mutex));
+      // number of interior rows: npts - 2
+      calc_data.row_start = (i * ((npts - 2) / 7)) + 1;
+      calc_data.row_end = (i + 1) * ((npts - 2) / 7);
+      pthread_mutex_unlock(&(calc_data.mutex));
+      pthread_create(&(thread_pool[i]), NULL, calc_interior, (void*)(&calc_data));
     }
+    // make sure the last thread gets the rest (it'll have more than the others)
+    pthread_mutex_lock(&(calc_data.mutex));
+    calc_data.row_start = 0;
+    calc_data.row_end = npts - 1;
+    pthread_mutex_unlock(&(calc_data.mutex));
+    pthread_create(&(thread_pool[i]), NULL, calc_interior, (void*)(&calc_data));
 
     // deal with edges
     for( int i = 1; i < (npts - 1); i++ ) {
@@ -187,8 +234,14 @@ int main(int argc, char* argv[]) {
     P = npts * (npts - 1);
     current_temps[P] = previous_temps[P] * (1 - (4 * fourier));
     current_temps[P] += 2 * fourier * (previous_temps[P + 1] + previous_temps[P - npts]);
+
+    // wait for interior node calcs
+    for( int j = 0; j < NUM_THREADS; j++ ) {
+      pthread_join(thread_pool[i], NULL);
+    }
   }
 
+  pthread_mutex_destroy(&(calc_data.mutex));
   free(arr_a);
   free(arr_b);
   return RET_OK;
