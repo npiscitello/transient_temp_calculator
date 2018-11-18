@@ -95,7 +95,6 @@ struct calc_data_struct {
   float* previous_temps;
   int npts;
   float fourier;
-  pthread_mutex_t mutex;
 };
 typedef struct calc_data_struct calc_data_t;
 
@@ -171,12 +170,8 @@ int main(int argc, char* argv[]) {
   // calculate - we're assuming an adiabatic exterior
   // save space in equations by pre-calculating the point coordinate
   int P;
-  // prepare worker thread handles
-  pthread_t thread_pool[NUM_THREADS];
   // prepare struct to pass data to worker threads
   calc_data_t calc_data;
-  // make sure main thread waits for worker threads to copy data before moving on
-  pthread_mutex_init(&(calc_data.mutex), NULL);
   for( int i = 0; i < nt; i++ ) {
     write_data(i, current_temps, npts);
     flip_arrays(&current_temps, &previous_temps);
@@ -186,20 +181,9 @@ int main(int argc, char* argv[]) {
     calc_data.previous_temps = previous_temps;
     calc_data.npts = npts;
     calc_data.fourier = fourier;
-    for( int i = 0; i < (NUM_THREADS - 1); i++ ) {
-      pthread_mutex_lock(&(calc_data.mutex));
-      // number of interior rows: npts - 2
-      calc_data.row_start = (i * ((npts - 2) / 7)) + 1;
-      calc_data.row_end = (i + 1) * ((npts - 2) / 7);
-      pthread_mutex_unlock(&(calc_data.mutex));
-      pthread_create(&(thread_pool[i]), NULL, calc_interior, (void*)(&calc_data));
-    }
-    // make sure the last thread gets the rest (it'll have more than the others)
-    pthread_mutex_lock(&(calc_data.mutex));
-    calc_data.row_start = 0;
+    calc_data.row_start = 1;
     calc_data.row_end = npts - 1;
-    pthread_mutex_unlock(&(calc_data.mutex));
-    pthread_create(&(thread_pool[i]), NULL, calc_interior, (void*)(&calc_data));
+    calc_interior((void*)(&calc_data));
 
     // deal with edges
     for( int i = 1; i < (npts - 1); i++ ) {
@@ -235,13 +219,14 @@ int main(int argc, char* argv[]) {
     current_temps[P] = previous_temps[P] * (1 - (4 * fourier));
     current_temps[P] += 2 * fourier * (previous_temps[P + 1] + previous_temps[P - npts]);
 
+    /*
     // wait for interior node calcs
     for( int j = 0; j < NUM_THREADS; j++ ) {
       pthread_join(thread_pool[i], NULL);
     }
+    */
   }
 
-  pthread_mutex_destroy(&(calc_data.mutex));
   free(arr_a);
   free(arr_b);
   return RET_OK;
