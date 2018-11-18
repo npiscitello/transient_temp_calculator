@@ -34,7 +34,7 @@
 #define ALPHA_ARG     4
 
 // number of worker threads calculating interior nodes
-#define NUM_THREADS   3
+#define NUM_THREADS   2
 
 #define ERR(err_string)     printf("\e[31mError:\e[0m %s\n", (err_string))
 #define WARN(warn_string)   printf("\e[33mWarning:\e[0m %s\n", (warn_string))
@@ -183,6 +183,7 @@ int main(int argc, char* argv[]) {
     calc_data.previous_temps = previous_temps;
     calc_data.npts = npts;
     calc_data.fourier = fourier;
+    /*
     for( int j = 0; j < (NUM_THREADS - 1); j++ ) {
       calc_data.row_start = (j * (npts / NUM_THREADS)) + 1;
       //printf("%d ", (j * (npts / NUM_THREADS)) + 1);
@@ -195,6 +196,12 @@ int main(int argc, char* argv[]) {
     calc_data.row_end = npts - 1;
     //printf("%d - ", npts - 1);
     pthread_create(&(thread_pool[NUM_THREADS - 1]), NULL, calc_interior, (void*)(&calc_data));
+    */
+    // hardcoding for 2 threads to debug
+    calc_data.row_start = 1; calc_data.row_end = 39;
+    pthread_create(&(thread_pool[0]), NULL, calc_interior, (void*)(&calc_data));
+    calc_data.row_start = 39; calc_data.row_end = 39;
+    pthread_create(&(thread_pool[1]), NULL, calc_interior, (void*)(&calc_data));
 
     // deal with edges
     for( int j = 1; j < (npts - 1); j++ ) {
