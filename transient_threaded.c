@@ -199,9 +199,9 @@ int main(int argc, char* argv[]) {
     */
     // hardcoding for 2 threads to debug
     calc_data.row_start = 1; calc_data.row_end = 39;
-    pthread_create(&(thread_pool[0]), NULL, calc_interior, (void*)(&calc_data));
-    calc_data.row_start = 39; calc_data.row_end = 39;
     pthread_create(&(thread_pool[1]), NULL, calc_interior, (void*)(&calc_data));
+    //calc_data.row_start = 39; calc_data.row_end = 39;
+    //pthread_create(&(thread_pool[1]), NULL, calc_interior, (void*)(&calc_data));
 
     // deal with edges
     for( int j = 1; j < (npts - 1); j++ ) {
@@ -239,8 +239,9 @@ int main(int argc, char* argv[]) {
 
     // wait for interior node calcs
     for( int j = 0; j < NUM_THREADS; j++ ) {
-      pthread_join(thread_pool[j], NULL);
+      //pthread_join(thread_pool[j], NULL);
     }
+    pthread_join(thread_pool[1], NULL);
   }
   // put out our last round of calculations
   write_data(nt, current_temps, npts);
