@@ -34,7 +34,7 @@
 #define ALPHA_ARG     4
 
 // number of worker threads calculating interior nodes
-#define NUM_THREADS   2
+#define NUM_THREADS   7
 
 #define ERR(err_string)     printf("\e[31mError:\e[0m %s\n", (err_string))
 #define WARN(warn_string)   printf("\e[33mWarning:\e[0m %s\n", (warn_string))
@@ -91,6 +91,7 @@ int write_data(const int frame_num, const float* array, const int num_points) {
 struct calc_data_struct {
   pthread_cond_t* copy_sig;
   pthread_mutex_t* copy_mutex;
+  // for debugging
   int print;
   int row_start;
   int row_end;
@@ -183,6 +184,7 @@ int main(int argc, char* argv[]) {
   int P;
   // prepare struct to pass data to worker threads
   calc_data_t calc_data;
+  calc_data.print = 0;
   calc_data.npts = npts;
   calc_data.fourier = fourier;
   // worker thread pool
@@ -195,40 +197,46 @@ int main(int argc, char* argv[]) {
   pthread_mutex_t data_change_mutex;
   calc_data.copy_mutex = &data_change_mutex;
   pthread_mutex_init(&(data_change_mutex), NULL);
+  // we need to take this lock outside the loop, explained below
+  pthread_mutex_lock(calc_data.copy_mutex);
   for( int i = 0; i < nt; i++ ) {
     write_data(i, current_temps, npts);
+    // there's probably a cleaner way to get the arrays to flip, but that's a later problem
     flip_arrays(&current_temps, &previous_temps);
     calc_data.current_temps = current_temps;
     calc_data.previous_temps = previous_temps;
 
     // kick off interior node calc threads
-    /*
+    // We manually locked the mutex before the loop so we know we can write to the calc_data struct.
+    // Once we've done that, we unlock and wait for the most recently created thread to copy its
+    // data, then re-lock and update with the next thread's info. Wash, rinse, repeat - after the
+    // last thread signals that it's done copying, we lock the mutex and hold that lock until the
+    // loop starts again (that's why the initial lock is out of the loop - otherwise we'd deadlock
+    // trying to acquire a lock we already have).
     for( int j = 0; j < (NUM_THREADS - 1); j++ ) {
       calc_data.row_start = (j * (npts / NUM_THREADS)) + 1;
-      //printf("%d ", (j * (npts / NUM_THREADS)) + 1);
       calc_data.row_end   = ((j + 1) * (npts / NUM_THREADS)) + 1;
-      //printf("%d ", ((j + 1) * (npts / NUM_THREADS)) + 1);
       pthread_create(&(thread_pool[j]), NULL, calc_interior, (void*)(&calc_data));
+      pthread_cond_wait(calc_data.copy_sig, calc_data.copy_mutex);
     }
     calc_data.row_start = ((NUM_THREADS - 1) * (npts / NUM_THREADS)) + 1;
-    //printf("%d ", ((NUM_THREADS - 1) * (npts / NUM_THREADS)) + 1);
     calc_data.row_end = npts - 1;
-    //printf("%d - ", npts - 1);
     pthread_create(&(thread_pool[NUM_THREADS - 1]), NULL, calc_interior, (void*)(&calc_data));
-    */
+    pthread_cond_wait(calc_data.copy_sig, calc_data.copy_mutex);
 
+    /*
     fprintf(stderr, "[prnt] s: %02d, e: %02d, c: %p, p: %p, n: %d, f: %f\n",
         calc_data.row_start, calc_data.row_end, (void*)(calc_data.current_temps),
         (void*)(calc_data.previous_temps), calc_data.npts, calc_data.fourier);
 
     // hardcoding for 2 threads to debug
-    pthread_mutex_lock(calc_data.copy_mutex);
     calc_data.row_start = 1; calc_data.row_end = 21; calc_data.print = 1;
     pthread_create(&(thread_pool[0]), NULL, calc_interior, (void*)(&calc_data));
     pthread_cond_wait(calc_data.copy_sig, calc_data.copy_mutex);
     calc_data.row_start = 21; calc_data.row_end = 39; calc_data.print = 1;
     pthread_create(&(thread_pool[1]), NULL, calc_interior, (void*)(&calc_data));
-    pthread_mutex_unlock(calc_data.copy_mutex);
+    pthread_cond_wait(calc_data.copy_sig, calc_data.copy_mutex);
+    */
 
     // deal with edges
     for( int j = 1; j < (npts - 1); j++ ) {
