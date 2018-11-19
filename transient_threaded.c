@@ -91,14 +91,12 @@ int write_data(const int frame_num, const float* array, const int num_points) {
 struct calc_data_struct {
   pthread_cond_t* copy_sig;
   pthread_mutex_t* copy_mutex;
-  // for debugging
-  int print;
   int row_start;
   int row_end;
   float* current_temps;
   float* previous_temps;
-  int npts;
-  float fourier;
+  const int* npts;
+  const float* fourier;
 };
 typedef struct calc_data_struct calc_data_t;
 
@@ -107,19 +105,15 @@ void* calc_interior( void* calc_data ) {
   calc_data_t data = *((calc_data_t *)calc_data);
   pthread_mutex_unlock(((calc_data_t*)calc_data)->copy_mutex);
   pthread_cond_signal(((calc_data_t*)calc_data)->copy_sig);
-  if( data.print ) {
-    fprintf(stderr, "[chld] s: %02d, e: %02d, c: %p, p: %p, n: %d, f: %f\n",
-        data.row_start, data.row_end, (void*)(data.current_temps),
-        (void*)(data.previous_temps), data.npts, data.fourier);
-  }
+
   int P;
   for( int y = data.row_start; y < data.row_end; y++ ) {
-    for( int x = 1; x < (data.npts - 1); x++) {
-      P = x + (y * data.npts);
-      (data.current_temps)[P] = (data.previous_temps)[P] * (1 - (4 * data.fourier));
-      (data.current_temps)[P] += data.fourier * ((data.previous_temps)[P + 1] + \
-          (data.previous_temps)[P - 1] + (data.previous_temps)[P + data.npts] + \
-          (data.previous_temps)[P - data.npts]);
+    for( int x = 1; x < (*data.npts - 1); x++) {
+      P = x + (y * *data.npts);
+      (data.current_temps)[P] = (data.previous_temps)[P] * (1 - (4 * *data.fourier));
+      (data.current_temps)[P] += *data.fourier * ((data.previous_temps)[P + 1] + \
+          (data.previous_temps)[P - 1] + (data.previous_temps)[P + *data.npts] + \
+          (data.previous_temps)[P - *data.npts]);
     }
   }
   return (NULL);
@@ -184,9 +178,8 @@ int main(int argc, char* argv[]) {
   int P;
   // prepare struct to pass data to worker threads
   calc_data_t calc_data;
-  calc_data.print = 0;
-  calc_data.npts = npts;
-  calc_data.fourier = fourier;
+  calc_data.npts = &npts;
+  calc_data.fourier = &fourier;
   // worker thread pool
   pthread_t thread_pool[NUM_THREADS];
   // initialize the condtion var to let the main thread know the child has copied the data...
@@ -197,8 +190,7 @@ int main(int argc, char* argv[]) {
   pthread_mutex_t data_change_mutex;
   calc_data.copy_mutex = &data_change_mutex;
   pthread_mutex_init(&(data_change_mutex), NULL);
-  // we need to take this lock outside the loop, explained below
-  pthread_mutex_lock(calc_data.copy_mutex);
+
   for( int i = 0; i < nt; i++ ) {
     write_data(i, current_temps, npts);
     // there's probably a cleaner way to get the arrays to flip, but that's a later problem
@@ -207,12 +199,10 @@ int main(int argc, char* argv[]) {
     calc_data.previous_temps = previous_temps;
 
     // kick off interior node calc threads
-    // We manually locked the mutex before the loop so we know we can write to the calc_data struct.
-    // Once we've done that, we unlock and wait for the most recently created thread to copy its
-    // data, then re-lock and update with the next thread's info. Wash, rinse, repeat - after the
-    // last thread signals that it's done copying, we lock the mutex and hold that lock until the
-    // loop starts again (that's why the initial lock is out of the loop - otherwise we'd deadlock
-    // trying to acquire a lock we already have).
+    // Lock to write to data struct, then unlock and wait for the newly created thread to copy
+    // in the data. Repeat. After the last thread has copied, we don't need the lock anymore
+    // so we have to manually unlock it.
+    pthread_mutex_lock(calc_data.copy_mutex);
     for( int j = 0; j < (NUM_THREADS - 1); j++ ) {
       calc_data.row_start = (j * (npts / NUM_THREADS)) + 1;
       calc_data.row_end   = ((j + 1) * (npts / NUM_THREADS)) + 1;
@@ -223,20 +213,7 @@ int main(int argc, char* argv[]) {
     calc_data.row_end = npts - 1;
     pthread_create(&(thread_pool[NUM_THREADS - 1]), NULL, calc_interior, (void*)(&calc_data));
     pthread_cond_wait(calc_data.copy_sig, calc_data.copy_mutex);
-
-    /*
-    fprintf(stderr, "[prnt] s: %02d, e: %02d, c: %p, p: %p, n: %d, f: %f\n",
-        calc_data.row_start, calc_data.row_end, (void*)(calc_data.current_temps),
-        (void*)(calc_data.previous_temps), calc_data.npts, calc_data.fourier);
-
-    // hardcoding for 2 threads to debug
-    calc_data.row_start = 1; calc_data.row_end = 21; calc_data.print = 1;
-    pthread_create(&(thread_pool[0]), NULL, calc_interior, (void*)(&calc_data));
-    pthread_cond_wait(calc_data.copy_sig, calc_data.copy_mutex);
-    calc_data.row_start = 21; calc_data.row_end = 39; calc_data.print = 1;
-    pthread_create(&(thread_pool[1]), NULL, calc_interior, (void*)(&calc_data));
-    pthread_cond_wait(calc_data.copy_sig, calc_data.copy_mutex);
-    */
+    pthread_mutex_unlock(calc_data.copy_mutex);
 
     // deal with edges
     for( int j = 1; j < (npts - 1); j++ ) {
