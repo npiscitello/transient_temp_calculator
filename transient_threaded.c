@@ -87,12 +87,14 @@ int write_data(const int frame_num, const float* array, const int num_points) {
   return RET_OK;
 }
 
-// for spinning interior node calculations into other threads
+// for spinning node calculations into other threads
 struct calc_data_struct {
   pthread_cond_t* copy_sig;
   pthread_mutex_t* copy_mutex;
   int row_start;
   int row_end;
+  int col_start;
+  int col_end;
   float* current_temps;
   float* previous_temps;
   const int* npts;
@@ -118,6 +120,59 @@ void* calc_interior( void* calc_data ) {
   }
   return (NULL);
 }
+
+void* calc_edges( void* calc_data ) {
+  pthread_mutex_lock(((calc_data_t*)calc_data)->copy_mutex);
+  calc_data_t data = *((calc_data_t *)calc_data);
+  pthread_mutex_unlock(((calc_data_t*)calc_data)->copy_mutex);
+  pthread_cond_signal(((calc_data_t*)calc_data)->copy_sig);
+
+  int P;
+  for( int i = 1; i < (*(data.npts) - 1); i++ ) {
+    P = i;
+    (data.current_temps)[P] = (data.previous_temps)[P] * (1 - (4 * *(data.fourier)));
+    (data.current_temps)[P] += *(data.fourier) * ((2 * (data.previous_temps)[P + *(data.npts)]) + \
+        (data.previous_temps)[P - 1] + (data.previous_temps)[P + 1]);
+    P = ((i + 1) * *(data.npts)) - 1;
+    (data.current_temps)[P] = (data.previous_temps)[P] * (1 - (4 * *(data.fourier)));
+    (data.current_temps)[P] += *(data.fourier) * ((2 * (data.previous_temps)[P - 1]) +    \
+        (data.previous_temps)[P - *(data.npts)] + (data.previous_temps)[P + *(data.npts)]);
+    P = (*(data.npts) * (*(data.npts) - 1)) + i;
+    (data.current_temps)[P] = (data.previous_temps)[P] * (1 - (4 * *(data.fourier)));
+    (data.current_temps)[P] += *(data.fourier) * ((2 * (data.previous_temps)[P - *(data.npts)]) + \
+        (data.previous_temps)[P - 1] + (data.previous_temps)[P + 1]);
+    P = i * *(data.npts);
+    (data.current_temps)[P] = (data.previous_temps)[P] * (1 - (4 * *(data.fourier)));
+    (data.current_temps)[P] += *(data.fourier) * ((2 * (data.previous_temps)[P + 1]) +    \
+        (data.previous_temps)[P - *(data.npts)] + (data.previous_temps)[P + *(data.npts)]);
+  }
+
+  return NULL;
+}
+
+void* calc_corners( void* calc_data ) {
+  pthread_mutex_lock(((calc_data_t*)calc_data)->copy_mutex);
+  calc_data_t data = *((calc_data_t *)calc_data);
+  pthread_mutex_unlock(((calc_data_t*)calc_data)->copy_mutex);
+  pthread_cond_signal(((calc_data_t*)calc_data)->copy_sig);
+
+  int P = 0;
+  (data.current_temps)[P] = (data.previous_temps)[P] * (1 - (4 * *(data.fourier)));
+  (data.current_temps)[P] += 2 * *(data.fourier) * ((data.previous_temps)[P + 1] + (data.previous_temps)[P + *(data.npts)]);
+  P = *(data.npts) - 1;
+  (data.current_temps)[P] = (data.previous_temps)[P] * (1 - (4 * *(data.fourier)));
+  (data.current_temps)[P] += 2 * *(data.fourier) * ((data.previous_temps)[P - 1] + (data.previous_temps)[P + *(data.npts)]);
+  P = (*(data.npts) * *(data.npts)) - 1;
+  (data.current_temps)[P] = (data.previous_temps)[P] * (1 - (4 * *(data.fourier)));
+  (data.current_temps)[P] += 2 * *(data.fourier) * ((data.previous_temps)[P - 1] + (data.previous_temps)[P - *(data.npts)]);
+  P = *(data.npts) * (*(data.npts) - 1);
+  (data.current_temps)[P] = (data.previous_temps)[P] * (1 - (4 * *(data.fourier)));
+  (data.current_temps)[P] += 2 * *(data.fourier) * ((data.previous_temps)[P + 1] + (data.previous_temps)[P - *(data.npts)]);
+
+  return NULL;
+}
+
+
 
 int main(int argc, char* argv[]) {
   if( argc != (NUMARGS + 1)) {
@@ -215,39 +270,9 @@ int main(int argc, char* argv[]) {
     pthread_cond_wait(calc_data.copy_sig, calc_data.copy_mutex);
     pthread_mutex_unlock(calc_data.copy_mutex);
 
-    // deal with edges
-    for( int j = 1; j < (npts - 1); j++ ) {
-      P = j;
-      current_temps[P] = previous_temps[P] * (1 - (4 * fourier));
-      current_temps[P] += fourier * ((2 * previous_temps[P + npts]) + \
-          previous_temps[P - 1] + previous_temps[P + 1]);
-      P = ((j + 1) * npts) - 1;
-      current_temps[P] = previous_temps[P] * (1 - (4 * fourier));
-      current_temps[P] += fourier * ((2 * previous_temps[P - 1]) +    \
-          previous_temps[P - npts] + previous_temps[P + npts]);
-      P = (npts * (npts - 1)) + j;
-      current_temps[P] = previous_temps[P] * (1 - (4 * fourier));
-      current_temps[P] += fourier * ((2 * previous_temps[P - npts]) + \
-          previous_temps[P - 1] + previous_temps[P + 1]);
-      P = j * npts;
-      current_temps[P] = previous_temps[P] * (1 - (4 * fourier));
-      current_temps[P] += fourier * ((2 * previous_temps[P + 1]) +    \
-          previous_temps[P - npts] + previous_temps[P + npts]);
-    }
-
-    // deal with corners
-    P = 0;
-    current_temps[P] = previous_temps[P] * (1 - (4 * fourier));
-    current_temps[P] += 2 * fourier * (previous_temps[P + 1] + previous_temps[P + npts]);
-    P = npts - 1;
-    current_temps[P] = previous_temps[P] * (1 - (4 * fourier));
-    current_temps[P] += 2 * fourier * (previous_temps[P - 1] + previous_temps[P + npts]);
-    P = (npts * npts) - 1;
-    current_temps[P] = previous_temps[P] * (1 - (4 * fourier));
-    current_temps[P] += 2 * fourier * (previous_temps[P - 1] + previous_temps[P - npts]);
-    P = npts * (npts - 1);
-    current_temps[P] = previous_temps[P] * (1 - (4 * fourier));
-    current_temps[P] += 2 * fourier * (previous_temps[P + 1] + previous_temps[P - npts]);
+    // we'll calculate edges and corners in the main thread, since those don't take long
+    calc_edges((void*)(&calc_data));
+    calc_corners((void*)(&calc_data));
 
     // wait for interior node calcs
     for( int j = 0; j < NUM_THREADS; j++ ) {
