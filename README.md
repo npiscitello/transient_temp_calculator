@@ -14,3 +14,10 @@
    * see advanced options with `./heatmap.py -h`
    * you don't have to use mp4; any container that supports h264 should work (ffmpeg is magical)
 2. profit!
+
+# Notes
+* The threaded implementation actually works slower on my machine - the time saved by parallel
+  calculation of the interior is smaller than the overhead of spinning up threads. As the number of
+  nodal points increases and each time step takes longer to calculate, the threads will show a
+  performance gain, but the total runtime will probably be unusably high by the time the threads
+  save any time.
