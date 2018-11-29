@@ -3,7 +3,7 @@ THREADED 	:=	$(EXECNAME)_threaded
 
 CC				:=	gcc
 CFLAGS 		:=	
-LD_FLAGS 	:=	-pthread
+LD_FLAGS 	:=	-lpthread
 INCLUDES 	:= 	
 
 src 			:= 	$(wildcard *.c)
